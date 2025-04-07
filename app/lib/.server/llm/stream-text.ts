@@ -1,7 +1,3 @@
-import { streamText as _streamText, convertToCoreMessages } from 'ai';
-import { getAPIKey } from '~/lib/.server/llm/api-key';
-import { getAnthropicModel } from '~/lib/.server/llm/model';
-import { MAX_TOKENS } from './constants';
 import { getSystemPrompt } from './prompts';
 
 interface ToolResult<Name extends string, Args, Result> {
@@ -19,17 +15,40 @@ interface Message {
 
 export type Messages = Message[];
 
-export type StreamingOptions = Omit<Parameters<typeof _streamText>[0], 'model'>;
+export async function streamText(
+  messages: Messages,
+  env: Env,
+  options: Record<string, any> = {},
+) {
+  const apiKey = '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';
 
-export function streamText(messages: Messages, env: Env, options?: StreamingOptions) {
-  return _streamText({
-    model: getAnthropicModel(getAPIKey(env)),
-    system: getSystemPrompt(),
-    maxTokens: MAX_TOKENS,
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
     headers: {
-      'anthropic-beta': 'max-tokens-3-5-sonnet-2024-07-15',
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
     },
-    messages: convertToCoreMessages(messages),
-    ...options,
+    body: JSON.stringify({
+      model: 'openrouter/quasar-alpha',
+      messages: [
+        { role: 'system', content: getSystemPrompt() },
+        ...messages.map((m) => ({
+          role: m.role,
+          content: m.content,
+        })),
+      ],
+      max_tokens: 1024,
+      stream: false,
+    }),
   });
+
+  if (!response.ok) {
+    throw new Error(`OpenRouter API error: ${response.status} ${response.statusText}`);
+  }
+
+  const data = await response.json();
+
+  return {
+    text: data.choices?.[0]?.message?.content ?? '',
+  };
 }
